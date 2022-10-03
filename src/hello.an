@@ -5,4 +5,4 @@
   comment
 */
 print // inline comment
-  "Hello, ${ /* inside interpolation */name}!"
+  "Hello, ${ /* inside interpolation */name}!".c_string + 3u64

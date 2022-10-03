@@ -10,16 +10,31 @@ enum Delim {
 }
 
 #[derive(Clone, Debug)]
+enum IntegerKind {
+    I8,
+    I16,
+    I32,
+    I64,
+    Isz,
+    U8,
+    U16,
+    U32,
+    U64,
+    Usz,
+}
+
+#[derive(Clone, Debug)]
 enum Operator {
     Add,
     Equals,
+    MemberAccess,
 }
 
 #[derive(Clone, Debug)]
 enum Token {
     Ident(String),
     StringLiteral(String),
-    Int(u64),
+    Int(u64, Option<IntegerKind>),
     Operator(Operator),
     Comment,
     Open(Delim),
@@ -38,19 +53,35 @@ type Spanned<T> = (T, Span);
 
 fn lexer() -> impl Parser<char, Vec<Spanned<TokenTree>>, Error = Simple<char>> {
     let tt = recursive(|tt| {
+        let operator = just('+')
+            .to(Operator::Add)
+            .or(just('=').to(Operator::Equals))
+            .or(just('.').to(Operator::MemberAccess))
+            .map(Token::Operator)
+            .labelled("Operator");
+
         let line_ws = filter(|c: &char| c.is_inline_whitespace()).repeated();
 
         let ident = text::ident().map(Token::Ident).labelled("Identifier");
         let int = text::int(10)
             .from_str()
             .unwrapped()
-            .map(Token::Int)
+            .then(
+                text::keyword("i8")
+                    .to(IntegerKind::I8)
+                    .or(text::keyword("i16").to(IntegerKind::I16))
+                    .or(text::keyword("i32").to(IntegerKind::I32))
+                    .or(text::keyword("i64").to(IntegerKind::I64))
+                    .or(text::keyword("isz").to(IntegerKind::Isz))
+                    .or(text::keyword("u8").to(IntegerKind::U8))
+                    .or(text::keyword("u16").to(IntegerKind::U16))
+                    .or(text::keyword("u32").to(IntegerKind::U32))
+                    .or(text::keyword("u64").to(IntegerKind::U64))
+                    .or(text::keyword("usz").to(IntegerKind::Usz))
+                    .or_not(),
+            )
+            .map(|(i, t)| Token::Int(i, t))
             .labelled("Integer");
-        let operator = just('+')
-            .to(Operator::Add)
-            .or(just('=').to(Operator::Equals))
-            .map(Token::Operator)
-            .labelled("Operator");
 
         let escape = just('\\').ignore_then(
             just('\\')
@@ -86,7 +117,7 @@ fn lexer() -> impl Parser<char, Vec<Spanned<TokenTree>>, Error = Simple<char>> {
             .map(|tts| TokenTree::Tree(Delim::Interpolation, tts))
             .labelled("String");
 
-        let single = int.or(ident).or(operator).map(TokenTree::Token).or(string);
+        let single = int.or(ident);
 
         // Token with extra tokens separated by non 0 length inline whitespace ahead
         let sequential = single
@@ -99,6 +130,8 @@ fn lexer() -> impl Parser<char, Vec<Spanned<TokenTree>>, Error = Simple<char>> {
             .clone()
             .then_ignore(line_ws.then(single).not().rewind())
             .labelled("Final token in a sequence");
+
+        let single = sequential.or(last).or(operator).map(TokenTree::Token);
 
         let token_tree = tt
             .padded()
@@ -118,7 +151,8 @@ fn lexer() -> impl Parser<char, Vec<Spanned<TokenTree>>, Error = Simple<char>> {
         // but parsing them here to preserve semantic indentation
         let comment = single_line.or(multi_line).map(TokenTree::Token);
 
-        last.or(sequential)
+        single
+            .or(string)
             .or(token_tree)
             .or(comment)
             .map_with_span(|tt, span| (tt, span))
