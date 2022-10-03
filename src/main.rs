@@ -115,7 +115,7 @@ fn lexer() -> impl Parser<char, Vec<Spanned<TokenTree>>, Error = Simple<char>> {
             .ignored()
             .to(Token::Comment);
         // The comments will get filtered out in the next stage,
-        // but parsing them here to preserve semanticindentation
+        // but parsing them here to preserve semantic indentation
         let comment = single_line.or(multi_line).map(TokenTree::Token);
 
         last.or(sequential)
@@ -131,7 +131,6 @@ fn lexer() -> impl Parser<char, Vec<Spanned<TokenTree>>, Error = Simple<char>> {
 fn main() {
     let src = include_str!("hello.an");
     match lexer().parse(src) {
-        // match parser().parse(src) {
         Ok(tts) => println!("{:#?}", tts),
         Err(err) => println!("Parse error: {:#?}", err),
     }
