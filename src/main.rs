@@ -7,6 +7,7 @@ enum Delim {
     Parenthesis,
     Curly,
     Interpolation,
+    Newline,
 }
 
 #[derive(Clone, Debug)]
@@ -37,6 +38,7 @@ enum Token {
     Int(u64, Option<IntegerKind>),
     Operator(Operator),
     Comment,
+    Newline,
     Open(Delim),
     Close(Delim),
 }
@@ -131,14 +133,6 @@ fn lexer() -> impl Parser<char, Vec<Spanned<TokenTree>>, Error = Simple<char>> {
             .then_ignore(line_ws.then(single).not().rewind())
             .labelled("Final token in a sequence");
 
-        let single = sequential.or(last).or(operator).map(TokenTree::Token);
-
-        let token_tree = tt
-            .padded()
-            .repeated()
-            .delimited_by(just('('), just(')'))
-            .map(|tts| TokenTree::Tree(Delim::Parenthesis, tts));
-
         let single_line = just("//")
             .then(take_until(text::newline().rewind()))
             .ignored()
@@ -149,12 +143,30 @@ fn lexer() -> impl Parser<char, Vec<Spanned<TokenTree>>, Error = Simple<char>> {
             .to(Token::Comment);
         // The comments will get filtered out in the next stage,
         // but parsing them here to preserve semantic indentation
-        let comment = single_line.or(multi_line).map(TokenTree::Token);
+        let comment = single_line.or(multi_line);
 
-        single
+        let single = sequential
+            .or(last)
+            .or(operator)
+            .or(comment)
+            .map(TokenTree::Token);
+
+        let token_tree = tt
+            .clone()
+            .padded()
+            .repeated()
+            .delimited_by(just('('), just(')'))
+            .map(|tts| TokenTree::Tree(Delim::Parenthesis, tts));
+
+        let line = tt
+            .padded()
+            .repeated()
+            .delimited_by(line_ws.rewind(), line_ws.then(text::newline()).rewind())
+            .map(|tts| TokenTree::Tree(Delim::Newline, tts));
+
+        line.or(single)
             .or(string)
             .or(token_tree)
-            .or(comment)
             .map_with_span(|tt, span| (tt, span))
     });
 
